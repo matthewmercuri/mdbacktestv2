@@ -6,7 +6,9 @@ from portfolio import Portfolio
 
 ''' TODO:
 - Make adjustments to cash while executing trades
-- Adjust where we check if the trade is valid
+- Fix methods of checking trades validity
+- Fix cost basis adjustment
+- Figure out a way to get only call _get_todays_df() method once, if slow
 '''
 
 
@@ -69,12 +71,13 @@ class Backtest(Log):
         else:
             return False
 
-    def _check_valid_buy(self, price, quantity):
+    def _check_valid_buy(self, symbol, quantity):
         ''' should be different in certain situaitons. E.g. allowing
         short-selling or options. Certain procedures must be excecuted
         regardless. Might be different if trading percentages instead
         of dollar amounts.
         '''
+        price = self._get_todays_price(symbol)
         total_price = quantity * price
         if total_price > self.Portfolio.cash:
             return False
@@ -82,36 +85,35 @@ class Backtest(Log):
             return True
         pass
 
+    def _check_valid_sell(self, symbol, quantity):
+        return True
+
     def _purchase_sale_helper(self, symbol, quantity):
-        '''  Need to work in commissions with cost basis. Have to be
+        ''' This method adjusts the stock portfolio to reflect
+        the trade. Need to work in commissions with cost basis. Have to be
         adding a 'Closed PnL' to each holding in stock_positions df
         '''
         stock_port_df = self.Portfolio.stock_positions
-
         price = self._get_todays_price(symbol)
 
-        if self._check_valid_buy(price, quantity) is True:
-            if self._check_current_positions(symbol) is True:
-                # See if the stock currently exists in the portfolio
-                stock_port_df = stock_port_df.loc[symbol]
-                if stock_port_df['Quantity'] + quantity == 0:
-                    # Removes the entry for the symbol if there are no shares
-                    df = self.Portfolio.stock_positions
-                    df.drop(symbol, inplace=True)
-                    self.Portfolio.stock_positions = df
-                else:
-                    # adjusts the symbol's quantity and cost basis, if exists
-                    stock_port_df['Quantity'] = stock_port_df['Quantity'] + quantity
-                    stock_port_df['Cost Basis'] = (stock_port_df['Quantity'] * price) / stock_port_df['Quantity']
-                    self.Portfolio.stock_positions.loc[symbol] = stock_port_df
+        if self._check_current_positions(symbol) is True:
+            # see if the stock currently exists in the portfolio
+            stock_port_df = stock_port_df.loc[symbol]
+            if stock_port_df['Quantity'] + quantity == 0:
+                # removes the entry for the symbol if there are no shares
+                df = self.Portfolio.stock_positions
+                df.drop(symbol, inplace=True)
+                self.Portfolio.stock_positions = df
             else:
-                addition = {'Quantity': quantity, 'Cost Basis': price}
-                stock_port_df.loc[symbol] = addition
-                self.Portfolio.stock_positions = stock_port_df
+                # adjusts the symbol's quantity and cost basis, if exists
+                stock_port_df['Quantity'] = stock_port_df['Quantity'] + quantity
+                stock_port_df['Cost Basis'] = (stock_port_df['Quantity'] * price) / stock_port_df['Quantity']
+                self.Portfolio.stock_positions.loc[symbol] = stock_port_df
         else:
-            ''' What do we do when there is not a valid transaction requested?
-            '''
-            pass
+            # only executed if stock does not already exist in holdings
+            addition = {'Quantity': quantity, 'Cost Basis': price}
+            stock_port_df.loc[symbol] = addition
+            self.Portfolio.stock_positions = stock_port_df
 
     def _get_todays_price(self, symbol):
         _todays_df = self.get_todays_df()
@@ -142,6 +144,38 @@ class Backtest(Log):
 
         return trans_pnl
 
+    def _buy_stock(self, symbol, quantity):
+        ''' Should log trade
+        '''
+        trans_pnl = -self.buy_stock_com
+        self.closed_pnl -= self.buy_stock_com
+        price = self._get_todays_price(symbol)
+
+        if self._check_current_positions(symbol) is True:
+            current_port_df = self.Portfolio.stock_positions
+            current_port_df = current_port_df.loc[symbol]
+            trans_pnl += self._find_pnl_on_trans(symbol, quantity, current_port_df, 'buy')
+
+        self._purchase_sale_helper(symbol, quantity)
+        date = self.todays_date
+        self.log_trade(date, symbol, 'Buy', quantity, price, trans_pnl)
+
+    def _sell_stock(self, symbol, quantity):
+        ''' Should log trade
+        '''
+        trans_pnl = -self.sell_stock_com
+        self.closed_pnl -= self.sell_stock_com
+        price = self._get_todays_price(symbol)
+
+        if self._check_current_positions(symbol) is True:
+            current_port_df = self.Portfolio.stock_positions
+            current_port_df = current_port_df.loc[symbol]
+            trans_pnl += self._find_pnl_on_trans(symbol, quantity, current_port_df, 'sell')
+
+        self._purchase_sale_helper(symbol, -quantity)
+        date = self.todays_date
+        self.log_trade(date, symbol, 'Sell', quantity, price, trans_pnl)
+
     def set_stock_commissions(self, buy_comm, sell_comm):
         self.buy_stock_com = buy_comm
         self.sell_stock_com = sell_comm
@@ -168,33 +202,9 @@ class Backtest(Log):
         return self._todays_df
 
     def buy_stock(self, symbol, quantity):
-        ''' Should log trade
-        '''
-        trans_pnl = -self.buy_stock_com
-        self.closed_pnl -= self.buy_stock_com
-        price = self._get_todays_price(symbol)
-
-        if self._check_current_positions(symbol) is True:
-            current_port_df = self.Portfolio.stock_positions
-            current_port_df = current_port_df.loc[symbol]
-            trans_pnl += self._find_pnl_on_trans(symbol, quantity, current_port_df, 'buy')
-
-        self._purchase_sale_helper(symbol, quantity)
-        date = self.todays_date
-        self.log_trade(date, symbol, 'Buy', quantity, price, trans_pnl)
+        if self._check_valid_buy(symbol, quantity) is True:
+            self._buy_stock(symbol, quantity)
 
     def sell_stock(self, symbol, quantity):
-        ''' Should log trade
-        '''
-        trans_pnl = -self.sell_stock_com
-        self.closed_pnl -= self.sell_stock_com
-        price = self._get_todays_price(symbol)
-
-        if self._check_current_positions(symbol) is True:
-            current_port_df = self.Portfolio.stock_positions
-            current_port_df = current_port_df.loc[symbol]
-            trans_pnl += self._find_pnl_on_trans(symbol, quantity, current_port_df, 'sell')
-
-        self._purchase_sale_helper(symbol, -quantity)
-        date = self.todays_date
-        self.log_trade(date, symbol, 'Sell', quantity, price, trans_pnl)
+        if self._check_valid_sell(symbol, quantity) is True:
+            self._sell_stock(symbol, quantity)
