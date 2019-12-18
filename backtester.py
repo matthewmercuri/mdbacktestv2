@@ -4,6 +4,11 @@ from loggingmod import Log
 import pandas as pd
 from portfolio import Portfolio
 
+''' TODO:
+- Make adjustments to cash while executing trades
+- Adjust where we check if the trade is valid
+'''
+
 
 class Backtest(Log):
 
@@ -87,12 +92,15 @@ class Backtest(Log):
 
         if self._check_valid_buy(price, quantity) is True:
             if self._check_current_positions(symbol) is True:
+                # See if the stock currently exists in the portfolio
                 stock_port_df = stock_port_df.loc[symbol]
                 if stock_port_df['Quantity'] + quantity == 0:
+                    # Removes the entry for the symbol if there are no shares
                     df = self.Portfolio.stock_positions
                     df.drop(symbol, inplace=True)
                     self.Portfolio.stock_positions = df
                 else:
+                    # adjusts the symbol's quantity and cost basis, if exists
                     stock_port_df['Quantity'] = stock_port_df['Quantity'] + quantity
                     stock_port_df['Cost Basis'] = (stock_port_df['Quantity'] * price) / stock_port_df['Quantity']
                     self.Portfolio.stock_positions.loc[symbol] = stock_port_df
