@@ -19,6 +19,7 @@ class Backtest(Log):
         self.buy_stock_com = 0
         self.sell_stock_com = 0
         self.closed_pnl = 0
+        self.log_df = self._create_log_df()
         self.Portfolio = Portfolio(start_cash)
         self._validate()
 
@@ -48,6 +49,11 @@ class Backtest(Log):
                 self.advance_day()
                 print(f'{self.trade_date} is not in {tradeable} data. Advancing...')
 
+    def _get_todays_date(self):
+        ''' function should just return todays trading date
+        '''
+        pass
+
     def _check_current_positions(self, symbol):
         ''' Checks current positions to see if it currently exists in the portolio
         '''
@@ -76,9 +82,7 @@ class Backtest(Log):
         '''
         stock_port_df = self.Portfolio.stock_positions
 
-        _todays_df = self.get_todays_df()
-        _todays_df = _todays_df[_todays_df['Symbol'] == symbol]
-        price = _todays_df['Adjusted Close'].iloc[0]
+        price = self._get_todays_price(symbol)
 
         if self._check_valid_buy(price, quantity) is True:
             if self._check_current_positions(symbol) is True:
@@ -100,6 +104,13 @@ class Backtest(Log):
             '''
             pass
 
+    def _get_todays_price(self, symbol):
+        _todays_df = self.get_todays_df()
+        self.todays_date = _todays_df.index[0]
+        _todays_df = _todays_df[_todays_df['Symbol'] == symbol]
+        price = _todays_df['Adjusted Close'].iloc[0]
+        return price
+
     def _find_pnl_on_trans(self, symbol, quantity, current_port_df, buy_or_sell):
         ''' Should also return transaction PnL. Fix situation where if
         the trade executes for a quantity that changes the net long or
@@ -109,9 +120,7 @@ class Backtest(Log):
         current_port_df = self.Portfolio.stock_positions
         current_port_df = current_port_df.loc[symbol]
 
-        _todays_df = self.get_todays_df()
-        _todays_df = _todays_df[_todays_df['Symbol'] == symbol]
-        price = _todays_df['Adjusted Close'].iloc[0]
+        price = self._get_todays_price(symbol)
 
         if current_port_df['Quantity'] > 0 and buy_or_sell == 'sell':
             trans_pnl = quantity*(price - current_port_df['Cost Basis'])
@@ -154,6 +163,7 @@ class Backtest(Log):
         '''
         trans_pnl = -self.buy_stock_com
         self.closed_pnl -= self.buy_stock_com
+        price = self._get_todays_price(symbol)
 
         if self._check_current_positions(symbol) is True:
             current_port_df = self.Portfolio.stock_positions
@@ -161,13 +171,15 @@ class Backtest(Log):
             trans_pnl += self._find_pnl_on_trans(symbol, quantity, current_port_df, 'buy')
 
         self._purchase_sale_helper(symbol, quantity)
-        self.log_trade(symbol, quantity, trans_pnl)
+        date = self.todays_date
+        self.log_trade(date, symbol, 'Buy', quantity, price, trans_pnl)
 
     def sell_stock(self, symbol, quantity):
         ''' Should log trade
         '''
         trans_pnl = -self.sell_stock_com
         self.closed_pnl -= self.sell_stock_com
+        price = self._get_todays_price(symbol)
 
         if self._check_current_positions(symbol) is True:
             current_port_df = self.Portfolio.stock_positions
@@ -175,4 +187,5 @@ class Backtest(Log):
             trans_pnl += self._find_pnl_on_trans(symbol, quantity, current_port_df, 'sell')
 
         self._purchase_sale_helper(symbol, -quantity)
-        self.log_trade(symbol, quantity, trans_pnl)
+        date = self.todays_date
+        self.log_trade(date, symbol, 'Sell', quantity, price, trans_pnl)
