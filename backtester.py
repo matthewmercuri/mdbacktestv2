@@ -55,7 +55,8 @@ class Backtest(Log):
         pass
 
     def _check_current_positions(self, symbol):
-        ''' Checks current positions to see if it currently exists in the portolio
+        ''' Checks current positions to see if it currently exists in the
+        portolio
         '''
         df = self.Portfolio.stock_positions
         if df.index == symbol:
